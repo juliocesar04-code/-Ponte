@@ -138,8 +138,8 @@ export async function searchCatalog(
 ): Promise<Service[]> {
   const { data, error } = await ponteSupabase.rpc('ponte_search_services', {
     search_query: query,
-    filter_state: location?.stateCode || null,
-    filter_municipality: location?.municipalityCode || null,
+    filter_state: location?.stateCode || undefined,
+    filter_municipality: location?.municipalityCode || undefined,
     result_limit: 40,
   });
 
