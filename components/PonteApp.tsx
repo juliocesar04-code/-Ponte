@@ -2,15 +2,33 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import {
   categories,
-  journeys,
-  serviceById,
-  services,
+  journeys as fallbackJourneys,
+  services as fallbackServices,
   type Journey,
   type Service,
   type ServiceCategory,
 } from '@/data/ponte-services';
+import {
+  getCurrentSession,
+  listMunicipalities,
+  listStates,
+  loadCatalog,
+  loadUserState,
+  onAuthChanged,
+  searchCatalog,
+  signIn,
+  signOut,
+  signUp,
+  syncLocation,
+  syncProgress,
+  syncSavedService,
+  type IbgeMunicipality,
+  type IbgeState,
+  type PonteLocation,
+} from '@/lib/ponte-backend';
 
 type InstallPrompt = Event & {
   prompt: () => Promise<void>;
@@ -21,6 +39,8 @@ type ProgressMap = Record<string, boolean>;
 
 const PROGRESS_STORAGE_KEY = 'ponte:progress:v1';
 const SAVED_STORAGE_KEY = 'ponte:saved:v1';
+const LOCATION_STORAGE_KEY = 'ponte:location:v1';
+const CATALOG_STORAGE_KEY = 'ponte:catalog:v1';
 
 const scenarioPresets = [
   {
@@ -86,15 +106,16 @@ function channelLabel(channel: Service['channel']) {
   return 'Digital + presencial';
 }
 
-function journeyForQuery(rawQuery: string): Journey {
+function journeyForQuery(rawQuery: string, journeyList: Journey[]): Journey {
   const query = normalize(rawQuery);
+  const first = journeyList[0] ?? fallbackJourneys[0];
 
   if (
     ['demit', 'emprego', 'trabalho', 'carteira', 'seguro', 'contrato'].some((term) =>
       query.includes(term)
     )
   ) {
-    return journeys.find((journey) => journey.id === 'voltar-trabalho') ?? journeys[0];
+    return journeyList.find((journey) => journey.id === 'voltar-trabalho') ?? first;
   }
 
   if (
@@ -102,7 +123,7 @@ function journeyForQuery(rawQuery: string): Journey {
       query.includes(term)
     )
   ) {
-    return journeys.find((journey) => journey.id === 'retomar-estudos') ?? journeys[0];
+    return journeyList.find((journey) => journey.id === 'retomar-estudos') ?? first;
   }
 
   if (
@@ -110,10 +131,10 @@ function journeyForQuery(rawQuery: string): Journey {
       query.includes(term)
     )
   ) {
-    return journeys.find((journey) => journey.id === 'organizar-vida') ?? journeys[0];
+    return journeyList.find((journey) => journey.id === 'organizar-vida') ?? first;
   }
 
-  return journeys[0];
+  return first;
 }
 
 function BrandMark() {
@@ -549,7 +570,7 @@ export function PonteApp() {
   const recommendedJourney = useMemo(() => journeyForQuery(query), [query]);
 
   const selectedJourney =
-    journeys.find((journey) => journey.id === selectedJourneyId) ?? journeys[0];
+    journeyList.find((journey) => journey.id === selectedJourneyId) ?? first;
 
   const selectedDone = selectedJourney.steps.filter((step) => progress[step.id]).length;
   const selectedPercent = Math.round((selectedDone / selectedJourney.steps.length) * 100);
