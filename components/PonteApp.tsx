@@ -86,6 +86,20 @@ const scenarioPresets = [
     journeyId: 'regularizar-cidadania',
     code: '06',
   },
+  {
+    id: 'contas',
+    label: 'Reduzir contas essenciais',
+    query: 'tarifa social energia gas do povo cadastro unico',
+    journeyId: 'reduzir-contas',
+    code: '07',
+  },
+  {
+    id: 'mei',
+    label: 'Quero abrir um MEI',
+    query: 'abrir mei cnpj nota fiscal empreender',
+    journeyId: 'empreender-mei',
+    code: '08',
+  },
 ] as const;
 
 function channelLabel(channel: Service['channel']) {
