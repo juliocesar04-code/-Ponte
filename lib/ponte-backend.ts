@@ -1,10 +1,11 @@
 import { createClient, type Session } from '@supabase/supabase-js';
 import type { Journey, Service } from '@/data/ponte-services';
+import type { Database } from '@/lib/database.types';
 
 const SUPABASE_URL = 'https://rkxtrevywowqmgbjqwko.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable___KQzIViXDWdR5yjIFF4nA_iSnO-8iO';
 
-export const ponteSupabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const ponteSupabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
