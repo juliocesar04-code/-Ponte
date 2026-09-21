@@ -1,4 +1,4 @@
-export type ServiceCategory = 'documentos' | 'trabalho' | 'renda' | 'saude' | 'educacao' | 'previdencia' | 'cidadania' | 'seguranca' | 'transito' | 'viagem';
+export type ServiceCategory = 'documentos' | 'trabalho' | 'renda' | 'saude' | 'educacao' | 'previdencia' | 'cidadania' | 'seguranca' | 'transito' | 'viagem' | 'empresa' | 'consumo';
 
 export type Service = {
   id: string;
@@ -47,6 +47,8 @@ export const categories: Array<{ id: 'todos' | ServiceCategory; label: string }>
   { id: 'seguranca', label: 'Segurança' },
   { id: 'transito', label: 'Trânsito' },
   { id: 'viagem', label: 'Viagem' },
+  { id: 'empresa', label: 'Empreender' },
+  { id: 'consumo', label: 'Consumidor' },
 ];
 
 export const services: Service[] = [
