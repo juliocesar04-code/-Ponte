@@ -1949,6 +1949,317 @@ input:focus-visible {
   font-style: normal;
 }
 
+
+.header-location,
+.account-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--white);
+  padding: 0 11px;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.header-location:hover,
+.account-button:hover {
+  border-color: rgba(184, 255, 90, 0.48);
+  background: rgba(184, 255, 90, 0.07);
+}
+
+.header-location > span {
+  color: var(--lime);
+  font-size: 15px;
+}
+
+.header-location strong,
+.account-button {
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+
+.account-button > span {
+  color: var(--lime);
+  font-size: 8px;
+}
+
+.source-state {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  color: #7a898d;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.source-state::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #9aa4a7;
+}
+
+.source-state--ok::before {
+  background: #5a9d24;
+}
+
+.source-state--redirected::before {
+  background: #4d75c9;
+}
+
+.source-state--restricted::before {
+  background: #ad6d24;
+}
+
+.source-state--error {
+  color: #a14b3c;
+}
+
+.source-state--error::before {
+  background: #b44e3d;
+}
+
+.verified-chip--restricted i {
+  background: var(--orange);
+  box-shadow: 0 0 0 4px rgba(255, 159, 109, 0.1);
+}
+
+.verified-chip--error {
+  color: #9b4e40;
+}
+
+.verified-chip--error i {
+  background: #b44e3d;
+  box-shadow: 0 0 0 4px rgba(180, 78, 61, 0.09);
+}
+
+.utility-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(2, 8, 11, 0.76);
+  backdrop-filter: blur(14px);
+}
+
+.utility-panel {
+  width: min(560px, 100%);
+  max-height: min(780px, calc(100vh - 44px));
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: var(--white);
+  color: var(--ink);
+  box-shadow: 0 42px 120px rgba(0, 0, 0, 0.42);
+}
+
+.utility-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 28px;
+  align-items: flex-start;
+  padding: 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.utility-panel__head span {
+  color: #899497;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.utility-panel__head h2 {
+  max-width: 410px;
+  margin: 12px 0 0;
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 0.94;
+  letter-spacing: -0.055em;
+}
+
+.utility-panel__head > button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.utility-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 18px 28px 0;
+}
+
+.utility-tabs button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.utility-tabs button.is-active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--lime);
+}
+
+.utility-form {
+  display: grid;
+  gap: 14px;
+  padding: 22px 28px 12px;
+}
+
+.utility-field {
+  display: grid;
+  gap: 7px;
+}
+
+.utility-field > span {
+  color: #758387;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.utility-field input,
+.utility-field select {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  outline: none;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0 13px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.utility-field input:focus,
+.utility-field select:focus {
+  border-color: rgba(7, 19, 25, 0.52);
+  box-shadow: 0 0 0 3px rgba(7, 19, 25, 0.05);
+}
+
+.utility-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.utility-submit {
+  min-height: 52px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--lime);
+  color: var(--ink);
+  padding: 0 16px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.utility-submit:disabled {
+  cursor: progress;
+  opacity: 0.62;
+}
+
+.utility-submit--secondary {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--ink);
+  color: var(--white);
+}
+
+.utility-message {
+  margin: 0;
+  border-radius: 10px;
+  background: #ebe9df;
+  color: #58666a;
+  padding: 11px;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.utility-note {
+  margin: 0;
+  padding: 0 28px 28px;
+  color: #76858a;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.account-state {
+  display: grid;
+  gap: 18px;
+  padding: 26px 28px 28px;
+}
+
+.account-state > div {
+  display: grid;
+  gap: 5px;
+  border-radius: 14px;
+  background: var(--ink);
+  color: var(--white);
+  padding: 18px;
+}
+
+.account-state > div span {
+  color: rgba(255, 255, 255, 0.44);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.account-state > div strong {
+  overflow-wrap: anywhere;
+  color: var(--lime);
+  font-size: 15px;
+}
+
+.account-state > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.62;
+}
+
+.utility-panel--location .utility-form {
+  padding-top: 26px;
+}
+
 @media (max-width: 1180px) {
   .hero__layout {
     grid-template-columns: 1fr;
@@ -2047,6 +2358,23 @@ input:focus-visible {
   .command-trigger kbd,
   .network-status {
     font-size: 0;
+  }
+
+  .header-location,
+  .account-button {
+    width: 38px;
+    min-height: 38px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .header-location strong,
+  .account-button {
+    font-size: 0;
+  }
+
+  .account-button > span {
+    font-size: 10px;
   }
 
   .command-trigger {
