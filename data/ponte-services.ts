@@ -1,4 +1,4 @@
-export type ServiceCategory = 'documentos' | 'trabalho' | 'renda' | 'saude' | 'educacao' | 'previdencia';
+export type ServiceCategory = 'documentos' | 'trabalho' | 'renda' | 'saude' | 'educacao' | 'previdencia' | 'cidadania' | 'seguranca' | 'transito' | 'viagem';
 
 export type Service = {
   id: string;
@@ -14,6 +14,9 @@ export type Service = {
   preparation: string[];
   why: string;
   updatedLabel: string;
+  scope?: 'national' | 'state' | 'municipal';
+  sourceStatus?: 'unknown' | 'ok' | 'redirected' | 'restricted' | 'error';
+  sourceCheckedAt?: string | null;
 };
 
 export type JourneyStep = {
@@ -40,6 +43,10 @@ export const categories: Array<{ id: 'todos' | ServiceCategory; label: string }>
   { id: 'saude', label: 'Saúde' },
   { id: 'educacao', label: 'Educação' },
   { id: 'previdencia', label: 'Previdência' },
+  { id: 'cidadania', label: 'Cidadania' },
+  { id: 'seguranca', label: 'Segurança' },
+  { id: 'transito', label: 'Trânsito' },
+  { id: 'viagem', label: 'Viagem' },
 ];
 
 export const services: Service[] = [
