@@ -11,6 +11,7 @@ import {
   type Service,
   type ServiceCategory,
 } from '@/data/ponte-services';
+import { journeyForQuery, rankServices } from '@/domain/ponte-search';
 import {
   getCurrentSession,
   listMunicipalities,
@@ -87,33 +88,6 @@ const scenarioPresets = [
   },
 ] as const;
 
-function normalize(value: string) {
-  return value
-    .toLocaleLowerCase('pt-BR')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
-
-function score(service: Service, rawQuery: string) {
-  const query = normalize(rawQuery);
-  if (!query) return 1;
-
-  const tokens = query.split(/\s+/).filter(Boolean);
-  const title = normalize(service.title);
-  const haystack = normalize(
-    [service.title, service.summary, service.agency, service.category, ...service.keywords].join(' ')
-  );
-
-  return tokens.reduce((total, token) => {
-    if (title === token) return total + 14;
-    if (title.startsWith(token)) return total + 9;
-    if (title.includes(token)) return total + 7;
-    if (haystack.includes(token)) return total + 3;
-    return total;
-  }, 0);
-}
-
 function channelLabel(channel: Service['channel']) {
   if (channel === 'digital') return 'Digital';
   if (channel === 'presencial') return 'Presencial';
@@ -126,51 +100,6 @@ function sourceHealth(service: Service) {
   if (service.sourceStatus === 'restricted') return { label: 'acesso protegido', tone: 'restricted' };
   if (service.sourceStatus === 'error') return { label: 'fonte em revisão', tone: 'error' };
   return { label: 'fonte oficial', tone: 'unknown' };
-}
-
-function journeyForQuery(rawQuery: string, journeyList: Journey[]): Journey {
-  const query = normalize(rawQuery);
-  const first = journeyList[0] ?? fallbackJourneys[0];
-
-  if (
-    ['demit', 'emprego', 'trabalho', 'carteira', 'seguro', 'contrato'].some((term) =>
-      query.includes(term)
-    )
-  ) {
-    return journeyList.find((journey) => journey.id === 'voltar-trabalho') ?? first;
-  }
-
-  if (
-    ['estud', 'encceja', 'ensino', 'escola', 'certific'].some((term) =>
-      query.includes(term)
-    )
-  ) {
-    return journeyList.find((journey) => journey.id === 'retomar-estudos') ?? first;
-  }
-
-  if (
-    ['passaporte', 'viagem', 'exterior', 'internacional'].some((term) => query.includes(term))
-  ) {
-    return journeyList.find((journey) => journey.id === 'viajar-exterior') ?? first;
-  }
-
-  if (
-    ['cpf', 'identidade', 'cin', 'titulo', 'eleitoral', 'cidadania'].some((term) =>
-      query.includes(term)
-    )
-  ) {
-    return journeyList.find((journey) => journey.id === 'regularizar-cidadania') ?? first;
-  }
-
-  if (
-    ['sus', 'saude', 'vacina', 'beneficio', 'cadastro', 'documento', 'inss'].some((term) =>
-      query.includes(term)
-    )
-  ) {
-    return journeyList.find((journey) => journey.id === 'organizar-vida') ?? first;
-  }
-
-  return first;
 }
 
 function BrandMark() {
@@ -747,13 +676,10 @@ export function PonteApp() {
     };
   }, [session?.user.id, hydrated]);
 
-  const localRankedServices = useMemo(() => {
-    return catalogServices
-      .map((service) => ({ service, score: score(service, query) }))
-      .filter(({ score: serviceScore }) => !query.trim() || serviceScore > 0)
-      .sort((a, b) => b.score - a.score)
-      .map(({ service }) => service);
-  }, [catalogServices, query]);
+  const localRankedServices = useMemo(
+    () => rankServices(catalogServices, query),
+    [catalogServices, query],
+  );
 
   const allRankedServices = remoteSearch ?? localRankedServices;
 
