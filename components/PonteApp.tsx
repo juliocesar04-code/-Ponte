@@ -71,6 +71,20 @@ const scenarioPresets = [
     journeyId: 'organizar-vida',
     code: '04',
   },
+  {
+    id: 'viagem',
+    label: 'Vou viajar para fora',
+    query: 'viagem exterior passaporte',
+    journeyId: 'viajar-exterior',
+    code: '05',
+  },
+  {
+    id: 'cidadania',
+    label: 'Regularizar documentos',
+    query: 'cpf identidade cin titulo eleitoral',
+    journeyId: 'regularizar-cidadania',
+    code: '06',
+  },
 ] as const;
 
 function normalize(value: string) {
@@ -106,6 +120,14 @@ function channelLabel(channel: Service['channel']) {
   return 'Digital + presencial';
 }
 
+function sourceHealth(service: Service) {
+  if (service.sourceStatus === 'ok') return { label: 'fonte verificada', tone: 'ok' };
+  if (service.sourceStatus === 'redirected') return { label: 'redirecionamento oficial', tone: 'redirected' };
+  if (service.sourceStatus === 'restricted') return { label: 'acesso protegido', tone: 'restricted' };
+  if (service.sourceStatus === 'error') return { label: 'fonte em revisão', tone: 'error' };
+  return { label: 'fonte oficial', tone: 'unknown' };
+}
+
 function journeyForQuery(rawQuery: string, journeyList: Journey[]): Journey {
   const query = normalize(rawQuery);
   const first = journeyList[0] ?? fallbackJourneys[0];
@@ -124,6 +146,20 @@ function journeyForQuery(rawQuery: string, journeyList: Journey[]): Journey {
     )
   ) {
     return journeyList.find((journey) => journey.id === 'retomar-estudos') ?? first;
+  }
+
+  if (
+    ['passaporte', 'viagem', 'exterior', 'internacional'].some((term) => query.includes(term))
+  ) {
+    return journeyList.find((journey) => journey.id === 'viajar-exterior') ?? first;
+  }
+
+  if (
+    ['cpf', 'identidade', 'cin', 'titulo', 'eleitoral', 'cidadania'].some((term) =>
+      query.includes(term)
+    )
+  ) {
+    return journeyList.find((journey) => journey.id === 'regularizar-cidadania') ?? first;
   }
 
   if (
@@ -174,6 +210,9 @@ function ServiceCard({
           <div>
             <span className="service-card__agency">{service.agency}</span>
             <span className="service-card__channel">{channelLabel(service.channel)}</span>
+            <span className={'source-state source-state--' + sourceHealth(service).tone}>
+              {sourceHealth(service).label}
+            </span>
           </div>
         </div>
 
@@ -290,9 +329,9 @@ function ServiceDrawer({
             transition={{ type: 'spring', stiffness: 330, damping: 34 }}
           >
             <div className="drawer__toolbar">
-              <div className="verified-chip">
+              <div className={'verified-chip verified-chip--' + sourceHealth(service).tone}>
                 <i />
-                Fonte oficial
+                {sourceHealth(service).label}
               </div>
               <div className="drawer__actions">
                 <button
@@ -853,7 +892,9 @@ export function PonteApp() {
     <main>
       <div className="signal-bar">
         <span>PONTE / INFRAESTRUTURA CÍVICA DIGITAL</span>
-        <span>FONTES OFICIAIS · PROGRESSO LOCAL · SEM CADASTRO</span>
+        <span>
+          {backendState === 'online' ? 'CATÁLOGO AO VIVO' : 'MODO LOCAL'} · FONTES OFICIAIS · CONTA OPCIONAL
+        </span>
       </div>
 
       <header className="site-header">
@@ -870,6 +911,20 @@ export function PonteApp() {
         </nav>
 
         <div className="header-actions">
+          <button
+            className="header-location"
+            type="button"
+            onClick={() => setLocationOpen(true)}
+            title="Definir localização"
+          >
+            <span aria-hidden="true">⌖</span>
+            <strong>
+              {location.municipalityName
+                ? location.municipalityName + ' · ' + location.stateCode
+                : location.stateCode || 'Definir cidade'}
+            </strong>
+          </button>
+
           <button className="command-trigger" type="button" onClick={() => setCommandOpen(true)}>
             <span>Buscar</span>
             <kbd>⌘ K</kbd>
@@ -877,8 +932,13 @@ export function PonteApp() {
 
           <span className={'network-status ' + (online ? 'is-online' : 'is-offline')}>
             <i />
-            {online ? 'online' : 'offline'}
+            {online ? (backendState === 'online' ? 'ao vivo' : 'local') : 'offline'}
           </span>
+
+          <button className="account-button" type="button" onClick={() => setAuthOpen(true)}>
+            <span aria-hidden="true">{session ? '●' : '○'}</span>
+            {session ? 'Sincronizado' : 'Entrar'}
+          </button>
 
           {installPrompt ? (
             <button type="button" className="install-button" onClick={install}>
@@ -975,12 +1035,12 @@ export function PonteApp() {
         <div className="hero-status">
           <div>
             <span className="hero-status__label">MAPEAMENTO</span>
-            <strong>{String(services.length).padStart(2, '0')}</strong>
+            <strong>{String(catalogServices.length).padStart(2, '0')}</strong>
             <p>serviços oficiais nesta versão</p>
           </div>
           <div>
             <span className="hero-status__label">ROTAS</span>
-            <strong>{String(journeys.length).padStart(2, '0')}</strong>
+            <strong>{String(catalogJourneys.length).padStart(2, '0')}</strong>
             <p>jornadas conectadas</p>
           </div>
           <div>
@@ -1090,7 +1150,7 @@ export function PonteApp() {
         </div>
 
         <div className="journeys-grid">
-          {journeys.map((journey) => (
+          {catalogJourneys.map((journey) => (
             <JourneyCard
               key={journey.id}
               journey={journey}
@@ -1134,7 +1194,7 @@ export function PonteApp() {
 
             <div className="route-switcher">
               <span>Trocar rota</span>
-              {journeys.map((journey) => (
+              {catalogJourneys.map((journey) => (
                 <button
                   key={journey.id}
                   className={journey.id === selectedJourney.id ? 'is-active' : ''}
@@ -1217,7 +1277,7 @@ export function PonteApp() {
           <article>
             <span>03</span>
             <h3>Privacidade por padrão</h3>
-            <p>Progresso e serviços salvos ficam no navegador desta versão. Nada de CPF para montar o plano.</p>
+            <p>Sem conta, tudo fica no navegador. Com conta opcional, progresso, cidade e itens salvos sincronizam entre dispositivos.</p>
           </article>
           <article>
             <span>04</span>
@@ -1244,6 +1304,191 @@ export function PonteApp() {
           </p>
         </div>
       </footer>
+
+      <AnimatePresence>
+        {authOpen ? (
+          <motion.div
+            className="utility-shell"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Conta Ponte"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onMouseDown={(event) => {
+              if (event.currentTarget === event.target) setAuthOpen(false);
+            }}
+          >
+            <motion.div
+              className="utility-panel"
+              initial={{ opacity: 0, y: 18, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.99 }}
+            >
+              <div className="utility-panel__head">
+                <div>
+                  <span>CONTA OPCIONAL</span>
+                  <h2>{session ? 'Sincronização ativa' : 'Leve seu plano com você.'}</h2>
+                </div>
+                <button type="button" onClick={() => setAuthOpen(false)} aria-label="Fechar">×</button>
+              </div>
+
+              {session ? (
+                <div className="account-state">
+                  <div>
+                    <span>Conectado como</span>
+                    <strong>{session.user.email ?? 'Conta Ponte'}</strong>
+                  </div>
+                  <p>Serviços salvos, progresso e localização são sincronizados com sua conta. O catálogo continua público.</p>
+                  <button
+                    type="button"
+                    className="utility-submit utility-submit--secondary"
+                    onClick={async () => {
+                      await handleSignOut();
+                      setAuthOpen(false);
+                    }}
+                  >
+                    Sair da conta
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="utility-tabs">
+                    <button
+                      type="button"
+                      className={authMode === 'login' ? 'is-active' : ''}
+                      onClick={() => {
+                        setAuthMode('login');
+                        setAuthMessage('');
+                      }}
+                    >
+                      Entrar
+                    </button>
+                    <button
+                      type="button"
+                      className={authMode === 'signup' ? 'is-active' : ''}
+                      onClick={() => {
+                        setAuthMode('signup');
+                        setAuthMessage('');
+                      }}
+                    >
+                      Criar conta
+                    </button>
+                  </div>
+
+                  <form className="utility-form" onSubmit={handleAuthSubmit}>
+                    <label className="utility-field">
+                      <span>E-mail</span>
+                      <input
+                        type="email"
+                        value={authEmail}
+                        onChange={(event) => setAuthEmail(event.target.value)}
+                        autoComplete="email"
+                        required
+                      />
+                    </label>
+                    <label className="utility-field">
+                      <span>Senha</span>
+                      <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(event) => setAuthPassword(event.target.value)}
+                        autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                        minLength={6}
+                        required
+                      />
+                    </label>
+                    <button className="utility-submit" type="submit" disabled={authBusy}>
+                      {authBusy ? 'Processando…' : authMode === 'login' ? 'Entrar e sincronizar' : 'Criar conta'}
+                    </button>
+                    {authMessage ? <p className="utility-message">{authMessage}</p> : null}
+                  </form>
+
+                  <p className="utility-note">
+                    A conta é opcional. Sem login, o Ponte continua funcionando e salva o plano neste aparelho.
+                  </p>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {locationOpen ? (
+          <motion.div
+            className="utility-shell"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Localização do Ponte"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onMouseDown={(event) => {
+              if (event.currentTarget === event.target) setLocationOpen(false);
+            }}
+          >
+            <motion.div
+              className="utility-panel utility-panel--location"
+              initial={{ opacity: 0, y: 18, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.99 }}
+            >
+              <div className="utility-panel__head">
+                <div>
+                  <span>CONTEXTO LOCAL</span>
+                  <h2>Onde você quer resolver?</h2>
+                </div>
+                <button type="button" onClick={() => setLocationOpen(false)} aria-label="Fechar">×</button>
+              </div>
+
+              <div className="utility-form">
+                <label className="utility-field">
+                  <span>Estado</span>
+                  <select
+                    value={locationDraftState}
+                    onChange={(event) => {
+                      setLocationDraftState(event.target.value);
+                      setLocationDraftMunicipality('');
+                    }}
+                  >
+                    <option value="">Todos os estados</option>
+                    {states.map((state) => (
+                      <option key={state.id} value={state.sigla}>
+                        {state.nome} · {state.sigla}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="utility-field">
+                  <span>Município</span>
+                  <select
+                    value={locationDraftMunicipality}
+                    onChange={(event) => setLocationDraftMunicipality(event.target.value)}
+                    disabled={!locationDraftState}
+                  >
+                    <option value="">Todo o estado</option>
+                    {municipalities.map((municipality) => (
+                      <option key={municipality.id} value={municipality.id}>
+                        {municipality.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button className="utility-submit" type="button" onClick={saveLocationPreference}>
+                  Aplicar contexto local
+                </button>
+              </div>
+
+              <p className="utility-note">
+                O município ajuda o Ponte a priorizar serviços estaduais e municipais. Nenhuma localização precisa é coletada.
+              </p>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <CommandPalette
         open={commandOpen}
