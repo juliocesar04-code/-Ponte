@@ -1,4 +1,4 @@
-const CACHE = 'ponte-shell-v1';
+const CACHE = 'ponte-shell-v2';
 const CORE = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (event) => {
