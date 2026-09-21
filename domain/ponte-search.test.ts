@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Journey, Service } from '@/data/ponte-services';
-import { journeyForQuery, normalizeSearch, rankServices } from '@/domain/ponte-search';
+import type { Journey, Service } from '../data/ponte-services';
+import { journeyForQuery, normalizeSearch, rankServices } from './ponte-search';
 
 const journey = (id: string, title = id): Journey => ({
   id,
