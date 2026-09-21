@@ -472,22 +472,66 @@ export function PonteApp() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<'todos' | ServiceCategory>('todos');
   const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [selectedJourneyId, setSelectedJourneyId] = useState(journeys[0].id);
+  const [catalogServices, setCatalogServices] = useState<Service[]>(fallbackServices);
+  const [catalogJourneys, setCatalogJourneys] = useState<Journey[]>(fallbackJourneys);
+  const [remoteSearch, setRemoteSearch] = useState<Service[] | null>(null);
+  const [backendState, setBackendState] = useState<'loading' | 'online' | 'fallback'>('loading');
+  const [selectedJourneyId, setSelectedJourneyId] = useState(fallbackJourneys[0].id);
   const [progress, setProgress] = useState<ProgressMap>({});
   const [savedServices, setSavedServices] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [online, setOnline] = useState(true);
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState('');
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [location, setLocation] = useState<PonteLocation>({
+    stateCode: '',
+    municipalityCode: '',
+    municipalityName: '',
+  });
+  const [states, setStates] = useState<IbgeState[]>([]);
+  const [municipalities, setMunicipalities] = useState<IbgeMunicipality[]>([]);
+  const [locationDraftState, setLocationDraftState] = useState('');
+  const [locationDraftMunicipality, setLocationDraftMunicipality] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
       const storedProgress = window.localStorage.getItem(PROGRESS_STORAGE_KEY);
       const storedSaved = window.localStorage.getItem(SAVED_STORAGE_KEY);
+      const storedLocation = window.localStorage.getItem(LOCATION_STORAGE_KEY);
+      const storedCatalog = window.localStorage.getItem(CATALOG_STORAGE_KEY);
 
       if (storedProgress) setProgress(JSON.parse(storedProgress) as ProgressMap);
       if (storedSaved) setSavedServices(JSON.parse(storedSaved) as string[]);
+      if (storedLocation) {
+        const parsedLocation = JSON.parse(storedLocation) as PonteLocation;
+        setLocation(parsedLocation);
+        setLocationDraftState(parsedLocation.stateCode);
+        setLocationDraftMunicipality(parsedLocation.municipalityCode);
+      }
+      if (storedCatalog) {
+        const parsedCatalog = JSON.parse(storedCatalog) as {
+          services?: Service[];
+          journeys?: Journey[];
+        };
+        if (parsedCatalog.services?.length) setCatalogServices(parsedCatalog.services);
+        if (parsedCatalog.journeys?.length) {
+          setCatalogJourneys(parsedCatalog.journeys);
+          setSelectedJourneyId((current) =>
+            parsedCatalog.journeys?.some((journey) => journey.id === current)
+              ? current
+              : parsedCatalog.journeys?.[0]?.id ?? current,
+          );
+        }
+      }
     } catch {
       setProgress({});
       setSavedServices([]);
@@ -496,6 +540,25 @@ export function PonteApp() {
     }
 
     setOnline(window.navigator.onLine);
+
+    loadCatalog()
+      .then((catalog) => {
+        setCatalogServices(catalog.services);
+        setCatalogJourneys(catalog.journeys);
+        setSelectedJourneyId((current) =>
+          catalog.journeys.some((journey) => journey.id === current)
+            ? current
+            : catalog.journeys[0]?.id ?? current,
+        );
+        window.localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(catalog));
+        setBackendState('online');
+      })
+      .catch(() => setBackendState('fallback'));
+
+    listStates().then(setStates).catch(() => undefined);
+
+    getCurrentSession().then(setSession).catch(() => undefined);
+    const authListener = onAuthChanged(setSession);
 
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
@@ -512,6 +575,8 @@ export function PonteApp() {
       if (event.key === 'Escape') {
         setCommandOpen(false);
         setSelectedService(null);
+        setAuthOpen(false);
+        setLocationOpen(false);
       }
 
       if (event.key === '/' && document.activeElement?.tagName !== 'INPUT') {
@@ -534,6 +599,7 @@ export function PonteApp() {
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeinstallprompt', handleInstall);
       window.removeEventListener('keydown', handleKeyboard);
+      authListener.data.subscription.unsubscribe();
     };
   }, []);
 
@@ -547,48 +613,164 @@ export function PonteApp() {
     window.localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(savedServices));
   }, [hydrated, savedServices]);
 
-  const rankedServices = useMemo(() => {
-    return services
-      .map((service) => ({ service, score: score(service, query) }))
-      .filter(({ service, score: serviceScore }) => {
-        const categoryMatch = category === 'todos' || service.category === category;
-        const queryMatch = !query.trim() || serviceScore > 0;
-        return categoryMatch && queryMatch;
-      })
-      .sort((a, b) => b.score - a.score)
-      .map(({ service }) => service);
-  }, [category, query]);
+  useEffect(() => {
+    if (!hydrated) return;
+    window.localStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify(location));
+  }, [hydrated, location]);
 
-  const allRankedServices = useMemo(() => {
-    return services
+  useEffect(() => {
+    if (!locationDraftState) {
+      setMunicipalities([]);
+      return;
+    }
+
+    let cancelled = false;
+    listMunicipalities(locationDraftState)
+      .then((items) => {
+        if (!cancelled) setMunicipalities(items);
+      })
+      .catch(() => {
+        if (!cancelled) setMunicipalities([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [locationDraftState]);
+
+  useEffect(() => {
+    if (!online || backendState !== 'online') {
+      setRemoteSearch(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      searchCatalog(query, location)
+        .then((results) => {
+          if (!cancelled) setRemoteSearch(results);
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteSearch(null);
+        });
+    }, query.trim() ? 220 : 80);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [backendState, location.municipalityCode, location.stateCode, online, query]);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId || !hydrated) return;
+
+    let cancelled = false;
+    loadUserState(userId)
+      .then(async (remote) => {
+        if (cancelled) return;
+
+        const mergedSaved = Array.from(new Set([...savedServices, ...remote.savedServices]));
+        const mergedProgress: ProgressMap = { ...remote.progress };
+        for (const [stepId, completed] of Object.entries(progress)) {
+          mergedProgress[stepId] = Boolean(mergedProgress[stepId] || completed);
+        }
+
+        setSavedServices(mergedSaved);
+        setProgress(mergedProgress);
+
+        const nextLocation = remote.location ?? (location.stateCode ? location : null);
+        if (nextLocation) {
+          setLocation(nextLocation);
+          setLocationDraftState(nextLocation.stateCode);
+          setLocationDraftMunicipality(nextLocation.municipalityCode);
+        }
+
+        await Promise.allSettled([
+          ...mergedSaved.map((serviceId) => syncSavedService(userId, serviceId, true)),
+          ...Object.entries(mergedProgress)
+            .filter(([, completed]) => completed)
+            .map(([stepId]) => {
+              const journey = catalogJourneys.find((item) =>
+                item.steps.some((step) => step.id === stepId),
+              );
+              return journey
+                ? syncProgress(userId, journey.id, stepId, true)
+                : Promise.resolve();
+            }),
+          ...(nextLocation ? [syncLocation(userId, nextLocation)] : []),
+        ]);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id, hydrated]);
+
+  const localRankedServices = useMemo(() => {
+    return catalogServices
       .map((service) => ({ service, score: score(service, query) }))
       .filter(({ score: serviceScore }) => !query.trim() || serviceScore > 0)
       .sort((a, b) => b.score - a.score)
       .map(({ service }) => service);
-  }, [query]);
+  }, [catalogServices, query]);
 
-  const recommendedJourney = useMemo(() => journeyForQuery(query), [query]);
+  const allRankedServices = remoteSearch ?? localRankedServices;
+
+  const rankedServices = useMemo(
+    () =>
+      allRankedServices.filter(
+        (service) => category === 'todos' || service.category === category,
+      ),
+    [allRankedServices, category],
+  );
+
+  const recommendedJourney = useMemo(
+    () => journeyForQuery(query, catalogJourneys),
+    [catalogJourneys, query],
+  );
 
   const selectedJourney =
-    journeyList.find((journey) => journey.id === selectedJourneyId) ?? first;
+    catalogJourneys.find((journey) => journey.id === selectedJourneyId) ??
+    catalogJourneys[0] ??
+    fallbackJourneys[0];
+
+  const serviceById = useMemo(
+    () =>
+      Object.fromEntries(catalogServices.map((service) => [service.id, service])) as Record<
+        string,
+        Service
+      >,
+    [catalogServices],
+  );
 
   const selectedDone = selectedJourney.steps.filter((step) => progress[step.id]).length;
-  const selectedPercent = Math.round((selectedDone / selectedJourney.steps.length) * 100);
+  const selectedPercent = Math.round((selectedDone / Math.max(selectedJourney.steps.length, 1)) * 100);
 
-  const allSteps = journeys.flatMap((journey) => journey.steps);
+  const allSteps = catalogJourneys.flatMap((journey) => journey.steps);
   const totalDone = allSteps.filter((step) => progress[step.id]).length;
-  const overallPercent = Math.round((totalDone / allSteps.length) * 100);
+  const overallPercent = Math.round((totalDone / Math.max(allSteps.length, 1)) * 100);
 
   function toggleStep(stepId: string) {
-    setProgress((current) => ({ ...current, [stepId]: !current[stepId] }));
+    const completed = !progress[stepId];
+    setProgress((current) => ({ ...current, [stepId]: completed }));
+
+    const userId = session?.user.id;
+    const journey = catalogJourneys.find((item) => item.steps.some((step) => step.id === stepId));
+    if (userId && journey) {
+      syncProgress(userId, journey.id, stepId, completed).catch(() => undefined);
+    }
   }
 
   function toggleSaved(serviceId: string) {
+    const saved = !savedServices.includes(serviceId);
     setSavedServices((current) =>
-      current.includes(serviceId)
-        ? current.filter((id) => id !== serviceId)
-        : [...current, serviceId]
+      saved ? [...current, serviceId] : current.filter((id) => id !== serviceId),
     );
+
+    const userId = session?.user.id;
+    if (userId) syncSavedService(userId, serviceId, saved).catch(() => undefined);
   }
 
   function selectScenario(preset: (typeof scenarioPresets)[number]) {
@@ -610,6 +792,61 @@ export function PonteApp() {
     await installPrompt.prompt();
     await installPrompt.userChoice;
     setInstallPrompt(null);
+  }
+
+  async function handleAuthSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthMessage('');
+
+    try {
+      const result =
+        authMode === 'login'
+          ? await signIn(authEmail.trim(), authPassword)
+          : await signUp(authEmail.trim(), authPassword);
+
+      if (result.error) {
+        setAuthMessage(result.error.message);
+        return;
+      }
+
+      if (authMode === 'signup' && !result.data.session) {
+        setAuthMessage('Conta criada. Confira seu e-mail para concluir a confirmação.');
+        return;
+      }
+
+      setAuthOpen(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleSignOut() {
+    await signOut();
+    setSession(null);
+  }
+
+  function saveLocationPreference() {
+    const state = states.find((item) => item.sigla === locationDraftState);
+    const municipality = municipalities.find(
+      (item) => String(item.id) === locationDraftMunicipality,
+    );
+
+    const nextLocation: PonteLocation = {
+      stateCode: state?.sigla ?? locationDraftState,
+      municipalityCode: municipality ? String(municipality.id) : '',
+      municipalityName: municipality?.nome ?? '',
+    };
+
+    setLocation(nextLocation);
+    setLocationOpen(false);
+
+    const userId = session?.user.id;
+    if (userId && nextLocation.stateCode) {
+      syncLocation(userId, nextLocation).catch(() => undefined);
+    }
   }
 
   return (
