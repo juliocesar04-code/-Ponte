@@ -1,4 +1,4 @@
-import type { Journey, Service } from '@/data/ponte-services';
+import type { Journey, Service } from '../data/ponte-services';
 
 export function normalizeSearch(value: string) {
   return value
