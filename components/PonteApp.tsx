@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   categories,
   journeys,
@@ -19,7 +19,39 @@ type InstallPrompt = Event & {
 
 type ProgressMap = Record<string, boolean>;
 
-const STORAGE_KEY = 'ponte:progress:v1';
+const PROGRESS_STORAGE_KEY = 'ponte:progress:v1';
+const SAVED_STORAGE_KEY = 'ponte:saved:v1';
+
+const scenarioPresets = [
+  {
+    id: 'demitido',
+    label: 'Fui demitido',
+    query: 'fui demitido seguro desemprego carteira trabalho',
+    journeyId: 'voltar-trabalho',
+    code: '01',
+  },
+  {
+    id: 'documentos',
+    label: 'Organizar documentos',
+    query: 'documentos beneficios cadastro inss',
+    journeyId: 'organizar-vida',
+    code: '02',
+  },
+  {
+    id: 'estudos',
+    label: 'Quero retomar os estudos',
+    query: 'retomar estudos encceja ensino medio',
+    journeyId: 'retomar-estudos',
+    code: '03',
+  },
+  {
+    id: 'saude',
+    label: 'Saúde e vacinas',
+    query: 'saude sus vacina exame',
+    journeyId: 'organizar-vida',
+    code: '04',
+  },
+] as const;
 
 function normalize(value: string) {
   return value
@@ -40,9 +72,9 @@ function score(service: Service, rawQuery: string) {
   );
 
   return tokens.reduce((total, token) => {
-    if (title === token) return total + 12;
-    if (title.startsWith(token)) return total + 8;
-    if (title.includes(token)) return total + 6;
+    if (title === token) return total + 14;
+    if (title.startsWith(token)) return total + 9;
+    if (title.includes(token)) return total + 7;
     if (haystack.includes(token)) return total + 3;
     return total;
   }, 0);
@@ -54,12 +86,57 @@ function channelLabel(channel: Service['channel']) {
   return 'Digital + presencial';
 }
 
+function journeyForQuery(rawQuery: string): Journey {
+  const query = normalize(rawQuery);
+
+  if (
+    ['demit', 'emprego', 'trabalho', 'carteira', 'seguro', 'contrato'].some((term) =>
+      query.includes(term)
+    )
+  ) {
+    return journeys.find((journey) => journey.id === 'voltar-trabalho') ?? journeys[0];
+  }
+
+  if (
+    ['estud', 'encceja', 'ensino', 'escola', 'certific'].some((term) =>
+      query.includes(term)
+    )
+  ) {
+    return journeys.find((journey) => journey.id === 'retomar-estudos') ?? journeys[0];
+  }
+
+  if (
+    ['sus', 'saude', 'vacina', 'beneficio', 'cadastro', 'documento', 'inss'].some((term) =>
+      query.includes(term)
+    )
+  ) {
+    return journeys.find((journey) => journey.id === 'organizar-vida') ?? journeys[0];
+  }
+
+  return journeys[0];
+}
+
+function BrandMark() {
+  return (
+    <span className="brand-mark" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+      <i />
+    </span>
+  );
+}
+
 function ServiceCard({
   service,
+  saved,
   onOpen,
+  onToggleSaved,
 }: {
   service: Service;
+  saved: boolean;
   onOpen: (service: Service) => void;
+  onToggleSaved: (serviceId: string) => void;
 }) {
   return (
     <motion.article
@@ -71,24 +148,38 @@ function ServiceCard({
       className="service-card"
     >
       <div className="service-card__top">
-        <span className="service-card__index">{service.id.slice(0, 2).toUpperCase()}</span>
-        <span className="pill">{channelLabel(service.channel)}</span>
+        <div className="service-card__identity">
+          <span className="service-card__code">{service.id.slice(0, 2).toUpperCase()}</span>
+          <div>
+            <span className="service-card__agency">{service.agency}</span>
+            <span className="service-card__channel">{channelLabel(service.channel)}</span>
+          </div>
+        </div>
+
+        <button
+          className={'save-button ' + (saved ? 'is-saved' : '')}
+          type="button"
+          aria-label={(saved ? 'Remover ' : 'Salvar ') + service.title}
+          aria-pressed={saved}
+          onClick={() => onToggleSaved(service.id)}
+        >
+          <span aria-hidden="true">{saved ? '◆' : '◇'}</span>
+        </button>
       </div>
 
-      <div>
-        <p className="eyebrow">{service.agency}</p>
+      <div className="service-card__body">
         <h3>{service.title}</h3>
-        <p className="service-card__summary">{service.summary}</p>
+        <p>{service.summary}</p>
       </div>
 
-      <div className="service-card__why">
-        <span>Por que apareceu</span>
+      <div className="service-card__reason">
+        <span>Sinal de relevância</span>
         <p>{service.why}</p>
       </div>
 
-      <button className="text-button" type="button" onClick={() => onOpen(service)}>
-        Ver preparo e fonte
-        <span aria-hidden="true">→</span>
+      <button className="service-card__cta" type="button" onClick={() => onOpen(service)}>
+        <span>Preparar acesso</span>
+        <span aria-hidden="true">↗</span>
       </button>
     </motion.article>
   );
@@ -97,29 +188,48 @@ function ServiceCard({
 function JourneyCard({
   journey,
   progress,
+  selected,
   onSelect,
 }: {
   journey: Journey;
   progress: ProgressMap;
+  selected: boolean;
   onSelect: (journey: Journey) => void;
 }) {
   const done = journey.steps.filter((step) => progress[step.id]).length;
   const percent = Math.round((done / journey.steps.length) * 100);
 
   return (
-    <button className={'journey-card journey-card--' + journey.accent} type="button" onClick={() => onSelect(journey)}>
-      <div className="journey-card__meta">
+    <button
+      className={
+        'journey-card journey-card--' +
+        journey.accent +
+        (selected ? ' is-selected' : '')
+      }
+      type="button"
+      onClick={() => onSelect(journey)}
+    >
+      <div className="journey-card__head">
         <span>{journey.eyebrow}</span>
-        <span>{done}/{journey.steps.length}</span>
+        <span>{String(percent).padStart(2, '0')}%</span>
       </div>
-      <h3>{journey.title}</h3>
-      <p>{journey.description}</p>
-      <div className="progress" aria-label={percent + '% concluído'}>
-        <span style={{ width: percent + '%' }} />
+
+      <div className="journey-card__copy">
+        <h3>{journey.title}</h3>
+        <p>{journey.description}</p>
       </div>
+
+      <div className="journey-card__map" aria-hidden="true">
+        {journey.steps.map((step, index) => (
+          <span className={progress[step.id] ? 'is-done' : ''} key={step.id}>
+            <i>{String(index + 1).padStart(2, '0')}</i>
+          </span>
+        ))}
+      </div>
+
       <div className="journey-card__footer">
-        <span>{percent}% da rota</span>
-        <span>abrir →</span>
+        <span>{done}/{journey.steps.length} etapas</span>
+        <strong>Abrir plano <i aria-hidden="true">→</i></strong>
       </div>
     </button>
   );
@@ -127,9 +237,13 @@ function JourneyCard({
 
 function ServiceDrawer({
   service,
+  saved,
+  onToggleSaved,
   onClose,
 }: {
   service: Service | null;
+  saved: boolean;
+  onToggleSaved: (serviceId: string) => void;
   onClose: () => void;
 }) {
   return (
@@ -154,20 +268,42 @@ function ServiceDrawer({
             exit={{ x: '100%' }}
             transition={{ type: 'spring', stiffness: 330, damping: 34 }}
           >
-            <div className="drawer__head">
-              <div>
-                <p className="eyebrow">{service.agency} · {service.updatedLabel}</p>
-                <h2>{service.title}</h2>
+            <div className="drawer__toolbar">
+              <div className="verified-chip">
+                <i />
+                Fonte oficial
               </div>
-              <button className="icon-button" type="button" onClick={onClose} aria-label="Fechar detalhes">
-                ×
-              </button>
+              <div className="drawer__actions">
+                <button
+                  className={'save-button save-button--drawer ' + (saved ? 'is-saved' : '')}
+                  type="button"
+                  onClick={() => onToggleSaved(service.id)}
+                  aria-pressed={saved}
+                >
+                  {saved ? 'Salvo' : 'Salvar'}
+                </button>
+                <button className="icon-button" type="button" onClick={onClose} aria-label="Fechar detalhes">
+                  ×
+                </button>
+              </div>
             </div>
 
-            <p className="drawer__lead">{service.summary}</p>
+            <div className="drawer__hero">
+              <p className="eyebrow">{service.agency} · {channelLabel(service.channel)}</p>
+              <h2>{service.title}</h2>
+              <p>{service.summary}</p>
+            </div>
+
+            <div className="drawer__signal">
+              <span>Por que entrou no seu mapa</span>
+              <p>{service.why}</p>
+            </div>
 
             <section className="drawer__section">
-              <p className="eyebrow">Antes de abrir o serviço</p>
+              <div className="drawer__section-title">
+                <span>01</span>
+                <h3>Prepare antes de sair do Ponte</h3>
+              </div>
               <ol className="clean-list">
                 {service.preparation.map((item, index) => (
                   <li key={item}>
@@ -179,7 +315,10 @@ function ServiceDrawer({
             </section>
 
             <section className="drawer__section">
-              <p className="eyebrow">Separe</p>
+              <div className="drawer__section-title">
+                <span>02</span>
+                <h3>Separe estes itens</h3>
+              </div>
               <div className="tag-list">
                 {service.documents.map((document) => (
                   <span key={document}>{document}</span>
@@ -187,22 +326,121 @@ function ServiceDrawer({
               </div>
             </section>
 
-            <div className="source-card">
-              <div>
-                <span>Fonte externa</span>
-                <strong>Domínio oficial GOV.BR</strong>
-              </div>
-              <a href={service.officialUrl} target="_blank" rel="noreferrer">
-                {service.officialLabel}
-                <span aria-hidden="true">↗</span>
-              </a>
-            </div>
+            <a className="official-link" href={service.officialUrl} target="_blank" rel="noreferrer">
+              <span>
+                <small>{service.updatedLabel}</small>
+                <strong>{service.officialLabel}</strong>
+              </span>
+              <i aria-hidden="true">↗</i>
+            </a>
 
-            <p className="fine-print">
+            <p className="drawer__disclaimer">
               O Ponte organiza o caminho e aponta a fonte. Regras, elegibilidade, prazos e decisões
               pertencem ao órgão responsável e podem mudar.
             </p>
           </motion.aside>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+function CommandPalette({
+  open,
+  query,
+  services,
+  recommendedJourney,
+  onQueryChange,
+  onSelectService,
+  onSelectJourney,
+  onClose,
+}: {
+  open: boolean;
+  query: string;
+  services: Service[];
+  recommendedJourney: Journey;
+  onQueryChange: (value: string) => void;
+  onSelectService: (service: Service) => void;
+  onSelectJourney: (journey: Journey) => void;
+  onClose: () => void;
+}) {
+  const commandInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => commandInputRef.current?.focus(), 60);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="command-shell"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Busca rápida do Ponte"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) onClose();
+          }}
+        >
+          <motion.div
+            className="command"
+            initial={{ opacity: 0, y: -18, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.99 }}
+          >
+            <div className="command__search">
+              <span aria-hidden="true">⌕</span>
+              <input
+                ref={commandInputRef}
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="Descreva o que você precisa resolver"
+                autoComplete="off"
+              />
+              <kbd>ESC</kbd>
+            </div>
+
+            <div className="command__body">
+              <button
+                className="command__journey"
+                type="button"
+                onClick={() => {
+                  onSelectJourney(recommendedJourney);
+                  onClose();
+                }}
+              >
+                <span>Rota sugerida</span>
+                <strong>{recommendedJourney.title}</strong>
+                <i aria-hidden="true">→</i>
+              </button>
+
+              <div className="command__results">
+                <span className="command__label">Serviços relacionados</span>
+                {services.slice(0, 5).map((service) => (
+                  <button
+                    type="button"
+                    key={service.id}
+                    onClick={() => {
+                      onSelectService(service);
+                      onClose();
+                    }}
+                  >
+                    <span className="command__result-code">{service.id.slice(0, 2).toUpperCase()}</span>
+                    <span>
+                      <strong>{service.title}</strong>
+                      <small>{service.agency} · {channelLabel(service.channel)}</small>
+                    </span>
+                    <i aria-hidden="true">↗</i>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
         </motion.div>
       ) : null}
     </AnimatePresence>
@@ -215,16 +453,23 @@ export function PonteApp() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedJourneyId, setSelectedJourneyId] = useState(journeys[0].id);
   const [progress, setProgress] = useState<ProgressMap>({});
+  const [savedServices, setSavedServices] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [online, setOnline] = useState(true);
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) setProgress(JSON.parse(stored) as ProgressMap);
+      const storedProgress = window.localStorage.getItem(PROGRESS_STORAGE_KEY);
+      const storedSaved = window.localStorage.getItem(SAVED_STORAGE_KEY);
+
+      if (storedProgress) setProgress(JSON.parse(storedProgress) as ProgressMap);
+      if (storedSaved) setSavedServices(JSON.parse(storedSaved) as string[]);
     } catch {
       setProgress({});
+      setSavedServices([]);
     } finally {
       setHydrated(true);
     }
@@ -237,10 +482,27 @@ export function PonteApp() {
       event.preventDefault();
       setInstallPrompt(event as InstallPrompt);
     };
+    const handleKeyboard = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandOpen((current) => !current);
+      }
+
+      if (event.key === 'Escape') {
+        setCommandOpen(false);
+        setSelectedService(null);
+      }
+
+      if (event.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('beforeinstallprompt', handleInstall);
+    window.addEventListener('keydown', handleKeyboard);
 
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/sw.js').catch(() => undefined);
@@ -250,13 +512,19 @@ export function PonteApp() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeinstallprompt', handleInstall);
+      window.removeEventListener('keydown', handleKeyboard);
     };
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+    window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(progress));
   }, [hydrated, progress]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    window.localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(savedServices));
+  }, [hydrated, savedServices]);
 
   const rankedServices = useMemo(() => {
     return services
@@ -270,13 +538,50 @@ export function PonteApp() {
       .map(({ service }) => service);
   }, [category, query]);
 
+  const allRankedServices = useMemo(() => {
+    return services
+      .map((service) => ({ service, score: score(service, query) }))
+      .filter(({ score: serviceScore }) => !query.trim() || serviceScore > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ service }) => service);
+  }, [query]);
+
+  const recommendedJourney = useMemo(() => journeyForQuery(query), [query]);
+
   const selectedJourney =
     journeys.find((journey) => journey.id === selectedJourneyId) ?? journeys[0];
 
   const selectedDone = selectedJourney.steps.filter((step) => progress[step.id]).length;
+  const selectedPercent = Math.round((selectedDone / selectedJourney.steps.length) * 100);
+
+  const allSteps = journeys.flatMap((journey) => journey.steps);
+  const totalDone = allSteps.filter((step) => progress[step.id]).length;
+  const overallPercent = Math.round((totalDone / allSteps.length) * 100);
 
   function toggleStep(stepId: string) {
     setProgress((current) => ({ ...current, [stepId]: !current[stepId] }));
+  }
+
+  function toggleSaved(serviceId: string) {
+    setSavedServices((current) =>
+      current.includes(serviceId)
+        ? current.filter((id) => id !== serviceId)
+        : [...current, serviceId]
+    );
+  }
+
+  function selectScenario(preset: (typeof scenarioPresets)[number]) {
+    setQuery(preset.query);
+    setCategory('todos');
+    setSelectedJourneyId(preset.journeyId);
+    window.requestAnimationFrame(() => {
+      document.getElementById('servicos')?.scrollIntoView({ behavior: 'smooth' });
+    });
+  }
+
+  function openJourney(journey: Journey) {
+    setSelectedJourneyId(journey.id);
+    document.getElementById('plano')?.scrollIntoView({ behavior: 'smooth' });
   }
 
   async function install() {
@@ -288,9 +593,14 @@ export function PonteApp() {
 
   return (
     <main>
+      <div className="signal-bar">
+        <span>PONTE / INFRAESTRUTURA CÍVICA DIGITAL</span>
+        <span>FONTES OFICIAIS · PROGRESSO LOCAL · SEM CADASTRO</span>
+      </div>
+
       <header className="site-header">
         <a className="brand" href="#inicio" aria-label="Ponte — início">
-          <span className="brand__mark" aria-hidden="true"><i /><i /><i /></span>
+          <BrandMark />
           <span>Ponte</span>
         </a>
 
@@ -298,13 +608,20 @@ export function PonteApp() {
           <a href="#servicos">Serviços</a>
           <a href="#rotas">Rotas</a>
           <a href="#plano">Meu plano</a>
+          <a href="#metodo">Método</a>
         </nav>
 
         <div className="header-actions">
+          <button className="command-trigger" type="button" onClick={() => setCommandOpen(true)}>
+            <span>Buscar</span>
+            <kbd>⌘ K</kbd>
+          </button>
+
           <span className={'network-status ' + (online ? 'is-online' : 'is-offline')}>
             <i />
-            {online ? 'conectado' : 'modo offline'}
+            {online ? 'online' : 'offline'}
           </span>
+
           {installPrompt ? (
             <button type="button" className="install-button" onClick={install}>
               Instalar
@@ -315,79 +632,174 @@ export function PonteApp() {
 
       <section className="hero" id="inicio">
         <div className="hero__grid" aria-hidden="true" />
-        <div className="hero__rail" aria-hidden="true"><span /><span /><span /><span /></div>
+        <div className="hero__beam hero__beam--one" aria-hidden="true" />
+        <div className="hero__beam hero__beam--two" aria-hidden="true" />
 
-        <div className="hero__copy">
-          <p className="eyebrow">Serviços públicos em uma rota que faz sentido</p>
-          <h1>
-            Menos portal.
-            <span>Mais caminho.</span>
-          </h1>
-          <p className="hero__lead">
-            O Ponte encontra serviços, explica por que eles aparecem e transforma burocracia em
-            próximos passos que ficam salvos no seu aparelho.
-          </p>
+        <div className="hero__layout">
+          <div className="hero__copy">
+            <p className="eyebrow">Navegador de serviços públicos</p>
+            <h1>
+              Burocracia vira
+              <span>próxima ação.</span>
+            </h1>
+            <p className="hero__lead">
+              Descreva sua situação. O Ponte cruza serviços, organiza a sequência e deixa claro o que
+              você precisa preparar antes de abrir um portal oficial.
+            </p>
+
+            <div className="hero-search">
+              <div className="hero-search__topline">
+                <label htmlFor="service-search">O que você precisa resolver?</label>
+                <span>Pressione / para buscar</span>
+              </div>
+              <div className="hero-search__box">
+                <span aria-hidden="true">⌕</span>
+                <input
+                  ref={searchInputRef}
+                  id="service-search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Ex.: fui demitido e não sei o que fazer agora"
+                  autoComplete="off"
+                />
+                {query ? (
+                  <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca">
+                    limpar
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setCommandOpen(true)}>
+                    explorar
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="scenario-row" aria-label="Situações comuns">
+              {scenarioPresets.map((preset) => (
+                <button type="button" key={preset.id} onClick={() => selectScenario(preset)}>
+                  <span>{preset.code}</span>
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <aside className="decision-card">
+            <div className="decision-card__head">
+              <span>RESOLVER AGORA</span>
+              <span className="live-dot"><i /> sistema ativo</span>
+            </div>
+
+            <div className="decision-card__route">
+              <span className="decision-card__index">{recommendedJourney.eyebrow}</span>
+              <h2>{recommendedJourney.title}</h2>
+              <p>{recommendedJourney.description}</p>
+            </div>
+
+            <div className="decision-card__services">
+              <span>Primeiros sinais encontrados</span>
+              {allRankedServices.slice(0, 3).map((service, index) => (
+                <button type="button" key={service.id} onClick={() => setSelectedService(service)}>
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <strong>{service.title}</strong>
+                  <i aria-hidden="true">↗</i>
+                </button>
+              ))}
+            </div>
+
+            <button className="primary-action" type="button" onClick={() => openJourney(recommendedJourney)}>
+              Abrir rota sugerida
+              <span aria-hidden="true">→</span>
+            </button>
+          </aside>
         </div>
 
-        <div className="search-panel">
-          <label htmlFor="service-search">O que você precisa resolver?</label>
-          <div className="search-box">
-            <span aria-hidden="true">⌕</span>
-            <input
-              id="service-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Ex.: perdi o emprego, quero voltar a estudar..."
-              autoComplete="off"
-            />
-            {query ? (
-              <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca">
-                limpar
-              </button>
-            ) : null}
+        <div className="hero-status">
+          <div>
+            <span className="hero-status__label">MAPEAMENTO</span>
+            <strong>{String(services.length).padStart(2, '0')}</strong>
+            <p>serviços oficiais nesta versão</p>
           </div>
-          <div className="search-panel__footer">
-            <span>{rankedServices.length} caminhos relacionados</span>
-            <span>fontes oficiais · progresso local · offline</span>
+          <div>
+            <span className="hero-status__label">ROTAS</span>
+            <strong>{String(journeys.length).padStart(2, '0')}</strong>
+            <p>jornadas conectadas</p>
           </div>
-        </div>
-
-        <div className="hero__metrics">
-          <div><strong>07</strong><span>serviços mapeados nesta versão</span></div>
-          <div><strong>03</strong><span>rotas conectadas</span></div>
-          <div><strong>01</strong><span>plano salvo no dispositivo</span></div>
+          <div>
+            <span className="hero-status__label">PROGRESSO</span>
+            <strong>{String(overallPercent).padStart(2, '0')}%</strong>
+            <p>do seu mapa concluído</p>
+          </div>
+          <div>
+            <span className="hero-status__label">SALVOS</span>
+            <strong>{String(savedServices.length).padStart(2, '0')}</strong>
+            <p>serviços guardados no aparelho</p>
+          </div>
         </div>
       </section>
 
-      <section className="section" id="servicos">
+      <section className="workspace-strip" aria-label="Como o Ponte trabalha">
+        <div>
+          <span>01 / DESCREVER</span>
+          <strong>Fale da situação, não do órgão.</strong>
+        </div>
+        <div>
+          <span>02 / CRUZAR</span>
+          <strong>O Ponte conecta serviços e dependências.</strong>
+        </div>
+        <div>
+          <span>03 / EXECUTAR</span>
+          <strong>Você sai com ordem, documentos e fonte.</strong>
+        </div>
+      </section>
+
+      <section className="section services-section" id="servicos">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Descobrir</p>
-            <h2>Encontre sem adivinhar o nome do serviço.</h2>
+            <p className="eyebrow">Mapa de serviços</p>
+            <h2>Descubra pelo problema. Não pelo nome do portal.</h2>
           </div>
-          <p>
-            A busca cruza tema, intenção e palavras relacionadas. O resultado sempre mostra o motivo
-            da sugestão antes de mandar você para fora do app.
-          </p>
+          <div className="section-heading__aside">
+            <p>
+              A busca combina intenção, contexto e termos relacionados. Cada resultado explica por que
+              apareceu e qual canal oficial você deve usar.
+            </p>
+            <button type="button" onClick={() => setCommandOpen(true)}>
+              Abrir busca rápida <span>⌘ K</span>
+            </button>
+          </div>
         </div>
 
-        <div className="category-row" role="group" aria-label="Filtrar por categoria">
-          {categories.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              className={category === item.id ? 'is-active' : ''}
-              onClick={() => setCategory(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
+        <div className="catalog-toolbar">
+          <div className="category-row" role="group" aria-label="Filtrar por categoria">
+            {categories.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={category === item.id ? 'is-active' : ''}
+                onClick={() => setCategory(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="catalog-count">
+            <span>{rankedServices.length}</span>
+            resultados
+          </div>
         </div>
 
         <motion.div layout className="services-grid">
           <AnimatePresence mode="popLayout">
             {rankedServices.map((service) => (
-              <ServiceCard key={service.id} service={service} onOpen={setSelectedService} />
+              <ServiceCard
+                key={service.id}
+                service={service}
+                saved={savedServices.includes(service.id)}
+                onOpen={setSelectedService}
+                onToggleSaved={toggleSaved}
+              />
             ))}
           </AnimatePresence>
         </motion.div>
@@ -397,22 +809,26 @@ export function PonteApp() {
             <span>00</span>
             <div>
               <h3>Nenhum encaixe claro.</h3>
-              <p>Tente descrever a situação em vez do nome do órgão.</p>
+              <p>Tente descrever a situação com outras palavras. Ex.: “perdi o emprego” em vez de “MTE”.</p>
             </div>
+            <button type="button" onClick={() => setCommandOpen(true)}>Refazer busca</button>
           </div>
         ) : null}
       </section>
 
       <section className="section routes-section" id="rotas">
-        <div className="section-heading section-heading--light">
+        <div className="section-heading section-heading--dark">
           <div>
             <p className="eyebrow">Rotas conectadas</p>
-            <h2>Serviço isolado não resolve uma jornada.</h2>
+            <h2>Um serviço resolve uma etapa. Uma rota resolve a jornada.</h2>
           </div>
-          <p>
-            Cada rota agrupa preparação, serviço e acompanhamento. Você pode sair do app e voltar
-            depois: as etapas concluídas continuam marcadas.
-          </p>
+          <div className="section-heading__aside">
+            <p>
+              O plano persiste no navegador. Você pode fechar, voltar depois e continuar exatamente
+              do ponto em que parou.
+            </p>
+            <div className="local-chip"><i /> dados locais no dispositivo</div>
+          </div>
         </div>
 
         <div className="journeys-grid">
@@ -421,28 +837,45 @@ export function PonteApp() {
               key={journey.id}
               journey={journey}
               progress={progress}
-              onSelect={(item) => {
-                setSelectedJourneyId(item.id);
-                document.getElementById('plano')?.scrollIntoView({ behavior: 'smooth' });
-              }}
+              selected={journey.id === selectedJourney.id}
+              onSelect={openJourney}
             />
           ))}
         </div>
       </section>
 
       <section className="section plan-section" id="plano">
-        <div className="plan-shell">
-          <div className="plan-sidebar">
-            <p className="eyebrow">Meu plano</p>
-            <h2>{selectedJourney.title}</h2>
-            <p>{selectedJourney.description}</p>
+        <div className="plan-heading">
+          <div>
+            <p className="eyebrow">Central de execução</p>
+            <h2>Meu plano</h2>
+          </div>
+          <div className="plan-heading__progress">
+            <span>{selectedJourney.eyebrow}</span>
+            <strong>{String(selectedPercent).padStart(2, '0')}%</strong>
+          </div>
+        </div>
 
-            <div className="plan-score">
-              <strong>{selectedDone}/{selectedJourney.steps.length}</strong>
-              <span>etapas concluídas</span>
+        <div className="plan-shell">
+          <aside className="plan-sidebar">
+            <div>
+              <span className="plan-sidebar__status"><i /> rota ativa</span>
+              <h3>{selectedJourney.title}</h3>
+              <p>{selectedJourney.description}</p>
+            </div>
+
+            <div className="plan-meter">
+              <div>
+                <span>progresso</span>
+                <strong>{selectedDone}/{selectedJourney.steps.length}</strong>
+              </div>
+              <div className="plan-meter__track">
+                <span style={{ width: selectedPercent + '%' }} />
+              </div>
             </div>
 
             <div className="route-switcher">
+              <span>Trocar rota</span>
               {journeys.map((journey) => (
                 <button
                   key={journey.id}
@@ -451,11 +884,12 @@ export function PonteApp() {
                   type="button"
                 >
                   <span>{journey.eyebrow}</span>
-                  {journey.title}
+                  <strong>{journey.title}</strong>
+                  <i aria-hidden="true">→</i>
                 </button>
               ))}
             </div>
-          </div>
+          </aside>
 
           <div className="steps">
             {selectedJourney.steps.map((step, index) => {
@@ -471,23 +905,32 @@ export function PonteApp() {
                     aria-pressed={isDone}
                     onClick={() => toggleStep(step.id)}
                   >
-                    {isDone ? '✓' : String(index + 1).padStart(2, '0')}
+                    <span>{isDone ? '✓' : String(index + 1).padStart(2, '0')}</span>
                   </button>
 
                   <div className="step__content">
-                    <div>
+                    <div className="step__copy">
                       <span className="eyebrow">{isDone ? 'Concluído' : 'Próxima ação'}</span>
                       <h3>{step.title}</h3>
                       <p>{step.detail}</p>
                     </div>
 
                     {linkedService ? (
-                      <button className="step__service" type="button" onClick={() => setSelectedService(linkedService)}>
+                      <button
+                        className="step__service"
+                        type="button"
+                        onClick={() => setSelectedService(linkedService)}
+                      >
                         <span>Serviço conectado</span>
                         <strong>{linkedService.title}</strong>
-                        <i aria-hidden="true">→</i>
+                        <i aria-hidden="true">↗</i>
                       </button>
-                    ) : null}
+                    ) : (
+                      <div className="step__local">
+                        <span>Ação local</span>
+                        <strong>Sem portal externo</strong>
+                      </div>
+                    )}
                   </div>
                 </article>
               );
@@ -496,39 +939,71 @@ export function PonteApp() {
         </div>
       </section>
 
-      <section className="trust-strip" aria-label="Princípios do Ponte">
-        <div>
-          <span>01</span>
-          <strong>Fonte antes de opinião</strong>
-          <p>Links apontam para canais oficiais e deixam claro quando a decisão é do órgão.</p>
+      <section className="method-section" id="metodo">
+        <div className="method-section__intro">
+          <p className="eyebrow">Método Ponte</p>
+          <h2>Menos clique cego. Mais contexto antes da ação.</h2>
         </div>
-        <div>
-          <span>02</span>
-          <strong>Explicação antes do clique</strong>
-          <p>Você entende por que um serviço apareceu antes de abrir outro portal.</p>
-        </div>
-        <div>
-          <span>03</span>
-          <strong>Privacidade por padrão</strong>
-          <p>O progresso desta versão fica no próprio navegador, sem pedir CPF ou cadastro.</p>
+
+        <div className="method-grid">
+          <article>
+            <span>01</span>
+            <h3>Fonte antes de opinião</h3>
+            <p>O caminho termina em canal oficial. O Ponte não substitui a decisão do órgão.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <h3>Explicação antes do clique</h3>
+            <p>Você entende por que um serviço apareceu e o que preparar antes de abrir outro site.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <h3>Privacidade por padrão</h3>
+            <p>Progresso e serviços salvos ficam no navegador desta versão. Nada de CPF para montar o plano.</p>
+          </article>
+          <article>
+            <span>04</span>
+            <h3>Continuidade</h3>
+            <p>Rotas persistentes reduzem recomeços e transformam burocracia em tarefas verificáveis.</p>
+          </article>
         </div>
       </section>
 
       <footer className="site-footer">
-        <div>
+        <div className="site-footer__brand">
           <a className="brand brand--footer" href="#inicio">
-            <span className="brand__mark" aria-hidden="true"><i /><i /><i /></span>
+            <BrandMark />
             <span>Ponte</span>
           </a>
-          <p>Um navegador de caminhos públicos — não um intermediário do governo.</p>
+          <p>Infraestrutura de navegação para serviços públicos brasileiros.</p>
         </div>
-        <p className="fine-print">
-          Protótipo funcional. O Ponte não concede benefícios, não substitui atendimento oficial e
-          não pede pagamento para acessar serviços públicos.
-        </p>
+
+        <div className="site-footer__meta">
+          <span>PROTÓTIPO FUNCIONAL / 2026</span>
+          <p>
+            O Ponte não concede benefícios, não substitui atendimento oficial e não pede pagamento
+            para acessar serviços públicos.
+          </p>
+        </div>
       </footer>
 
-      <ServiceDrawer service={selectedService} onClose={() => setSelectedService(null)} />
+      <CommandPalette
+        open={commandOpen}
+        query={query}
+        services={allRankedServices}
+        recommendedJourney={recommendedJourney}
+        onQueryChange={setQuery}
+        onSelectService={setSelectedService}
+        onSelectJourney={openJourney}
+        onClose={() => setCommandOpen(false)}
+      />
+
+      <ServiceDrawer
+        service={selectedService}
+        saved={selectedService ? savedServices.includes(selectedService.id) : false}
+        onToggleSaved={toggleSaved}
+        onClose={() => setSelectedService(null)}
+      />
     </main>
   );
 }
